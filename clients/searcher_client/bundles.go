@@ -77,20 +77,28 @@ func (cl *Client) SimulateBundle(ctx context.Context, bundleParams SimulateBundl
 // BroadcastBundleWithConfirmation sends a bundle of transactions on chain thru Jito BlockEngine and waits for its confirmation.
 func (cl *Client) BroadcastBundleWithConfirmation(ctx context.Context, transactions []*solana.Transaction, opts ...grpc.CallOption, 
 ) (*jito_pb.SendBundleResponse, error){
+  fmt.Println("Entered broadcastBundle function")
   bundle, err := cl.BroadcastBundle(transactions, opts...)
+  fmt.Println("Built a bundle!")
   if err != nil{
     return nil, fmt.Errorf("Couldn't broadcast bundles: %w", err)
   }
   
   bundleSignatures := pkg.BatchExtractSigFromTx(transactions)
+  fmt.Println("Extracted signatures from transactions")
+  
   
   for{
+    fmt.Println("looping")
     select{
     case <- cl.Auth.GrpcCtx.Done():
+      fmt.Println("done")
       return nil, cl.Auth.GrpcCtx.Err()
     default:
       time.Sleep(5 * time.Second)
+      fmt.Println("Requested bundle result")
       bundleResult, err := cl.BundleStreamSubscription.Recv() // 
+      fmt.Println("Received bundle result:", bundleResult)
       if err != nil{
         return bundle, err
       }
@@ -99,10 +107,11 @@ func (cl *Client) BroadcastBundleWithConfirmation(ctx context.Context, transacti
       if err := handleBundleResult(bundleResult, ""); err != nil{
         return bundle, err
       }
+      fmt.Println("Handled bundle result")
       
-      //var start = time.Now()
-      ctx, cancel := context.WithTimeout(ctx, time.Second*15)
-      defer cancel()
+      //ctx, cancel := context.WithTimeout(ctx, time.Second*15)
+      //defer cancel()
+      var start = time.Now()
       var statuses *rpc.GetSignatureStatusesResult
       
       isRPCNil(cl.RpcConn)
@@ -117,23 +126,25 @@ func (cl *Client) BroadcastBundleWithConfirmation(ctx context.Context, transacti
         for _, status := range statuses.Value{
           if status == nil{
             ready = false
+            fmt.Println("Not ready yet: breaking...")
             break
           }
         }
         if ready{
+          fmt.Println("Excited the loop: All statuses are ready!")
           break
         }
-        select{
-        case <- ctx.Done():
-          return bundle, errors.New("operation timied out after 15 seconds")
-        default:
-          time.Sleep(1*time.Second)
-        }
-        //if time.Since(start) > time.Second*15{
-        //  return bundle, errors.New("operation timed out after 15 secodns")
-        //} else{
-        //  time.Sleep(time.Second*1)
+        //select{
+        //case <- ctx.Done():
+        //  return bundle, errors.New("operation timied out after 15 seconds")
+        //default:
+        //  time.Sleep(1*time.Second)
         //}
+        if time.Since(start) > time.Second*15{
+          return bundle, errors.New("operation timed out after 15 secodns")
+        } else{
+          time.Sleep(time.Second*1)
+        }
       }
       
       for _,status := range statuses.Value{
@@ -142,6 +153,7 @@ func (cl *Client) BroadcastBundleWithConfirmation(ctx context.Context, transacti
         }
       }
       
+      fmt.Println("All good, return a bundle")
       return bundle, nil
     }
   }
